@@ -1,3 +1,4 @@
+
 name: Build ChessIA APK
 
 on:
@@ -8,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Baixar projeto
+      - name: Baixar arquivos
         uses: actions/checkout@v4
 
       - name: Configurar Java
@@ -17,20 +18,28 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Configurar Android SDK
+      - name: Extrair projeto ZIP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
+          unzip -o ChessIA_Mobile_Projeto_Reorganizado.zip -d .
+
+      - name: Configurar Android
         uses: android-actions/setup-android@v3
 
-      - name: Instalar Gradle
-        run: |
-          wget -q https://services.gradle.org/distributions/gradle-8.9-bin.zip
-          unzip -q gradle-8.9-bin.zip
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
 
       - name: Compilar APK
-        run: ./gradle-8.9/bin/gradle assembleDebug
+        run: gradle assembleDebug
 
-      - name: Salvar APK
+      - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
         with:
           name: ChessIA-APK
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          
   
