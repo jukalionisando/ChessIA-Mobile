@@ -1,0 +1,87 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>ChessIA Mobile Advanced</title>
+<style>
+:root{--bg:#111821;--panel:#202b37;--accent:#d9ad46;--text:#eef3f8}
+*{box-sizing:border-box}body{margin:0;padding:12px;background:var(--bg);color:var(--text);font:14px system-ui}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}h2{margin:0;font-size:21px}.tag{font-size:11px;background:#334659;border-radius:20px;padding:5px 9px}
+.panel{background:var(--panel);padding:10px;border-radius:12px;margin:9px 0}
+#board{width:min(94vw,510px);aspect-ratio:1;margin:auto;display:grid;grid-template-columns:repeat(8,1fr);border:2px solid #b8c4d0;touch-action:manipulation}
+.square{position:relative;display:flex;align-items:center;justify-content:center;font-size:clamp(27px,8.5vw,48px);user-select:none}
+.light{background:#e9e0cc}.dark{background:#77956e}.piece{filter:drop-shadow(0 1px 1px #555);z-index:2}
+.selected{box-shadow:inset 0 0 0 4px #f4c64e}.last{box-shadow:inset 0 0 0 4px #d9ad4680}
+.hint{position:absolute;width:23%;height:23%;border-radius:50%;background:#253d4a88}
+.controls{display:flex;gap:6px;flex-wrap:wrap;margin:9px 0}.controls button,button{background:#354b60;color:white;border:0;border-radius:8px;padding:9px 11px;font-weight:600}
+button.primary{background:#d5a83b;color:#161a20}.controls button:active{opacity:.75}
+select,input{background:#eef3f8;color:#17212b;border:0;border-radius:7px;padding:8px}
+#analysis{white-space:pre-wrap;line-height:1.5;min-height:54px}
+#score{font-weight:bold;font-size:19px;color:#f0cb69}
+#piecePicker button{font-size:23px;padding:5px 9px}#moves{max-height:95px;overflow:auto;font-size:12px;line-height:1.7}
+.muted{color:#aab7c5;font-size:12px}
+</style></head>
+<body>
+<header><h2>♟ ChessIA Mobile</h2><span class="tag">ADVANCED 2.0</span></header>
+<div class="panel"><div id="boardPanel"><div id="board"></div></div>
+<div class="controls">
+<button onclick="editToggle()">Editar peças <b id="editStatus">OFF</b></button>
+<button class="primary" onclick="analyze()">✦ Melhor jogada</button>
+<button onclick="reset()">Nova posição</button><button onclick="rotate()">Girar</button>
+</div>
+<div class="controls"><button onclick="back()">◀ Voltar</button><button onclick="forward()">Avançar ▶</button><button onclick="clearPosition()">Limpar</button></div>
+</div>
+<div class="panel"><div class="controls">
+<label>Jogam: <select id="turn" onchange="setTurn(this.value)"><option value="w">Brancas</option><option value="b">Pretas</option></select></label>
+<label>Profundidade: <select id="depth"><option>10</option><option selected>15</option><option>20</option><option>25</option></select></label>
+<label>Linhas: <select id="multi"><option>1</option><option selected>3</option><option>5</option></select></label>
+</div>
+<div><span id="score">Avaliação: —</span></div><div id="analysis">Toque em “Melhor jogada” para analisar. O motor precisa de internet nesta versão.</div>
+<div class="controls"><button onclick="stopEngine()">Parar análise</button><button onclick="copyFen()">Copiar FEN</button><button onclick="pasteFen()">Carregar FEN</button></div>
+</div>
+<div class="panel"><b>Histórico de lances</b><div id="moves">Nenhum lance ainda.</div></div>
+<div class="panel"><b>Editor de peças</b><div class="muted">Ative “Editar peças”, toque numa casa e selecione uma peça. Você pode apagar casas e escolher quem joga.</div><div id="piecePicker" class="controls"></div></div>
+<div class="muted">Dica: o modo flutuante abre uma bolha do ChessIA. A leitura automática do tabuleiro de outros apps ainda não está incluída.</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+<script>
+const symbols={wk:'♔',wq:'♕',wr:'♖',wb:'♗',wn:'♘',wp:'♙',bk:'♚',bq:'♛',br:'♜',bb:'♝',bn:'♞',bp:'♟'};
+let chess=new Chess(),edit=false,selected=null,flip=false,custom={},engine=null,history=[],historyIndex=0,lastMove=null,arrows=[];
+const board=document.querySelector('#board'), picker=document.querySelector('#piecePicker');
+function coords(){let a=[];for(let r=8;r>=1;r--)for(let f=0;f<8;f++)a.push(String.fromCharCode(97+f)+r);return flip?a.reverse():a}
+function getPiece(s){return edit?custom[s]:chess.get(s)}
+function render(){
+ board.innerHTML='';coords().forEach(s=>{let el=document.createElement('div'),f=s.charCodeAt(0)-97,r=Number(s[1]);el.className='square '+((f+r)%2?'dark':'light');if(s===selected)el.classList.add('selected');if(lastMove&&(s===lastMove.from||s===lastMove.to))el.classList.add('last');
+ let p=getPiece(s);if(p){let span=document.createElement('span');span.className='piece';span.textContent=symbols[p.color+p.type];el.appendChild(span)}
+ if(!edit&&selected){let legal=chess.moves({square:selected,verbose:true}).some(m=>m.to===s);if(legal){let dot=document.createElement('i');dot.className='hint';el.appendChild(dot)}}
+ el.onclick=()=>tap(s);board.appendChild(el)});
+ document.querySelector('#turn').value=chess.turn();document.querySelector('#editStatus').textContent=edit?'ON':'OFF';renderMoves()
+}
+function tap(s){
+ if(edit){selected=s;buildPicker();render();return}
+ let p=chess.get(s);if(selected){let mv=chess.move({from:selected,to:s,promotion:'q'});if(mv){lastMove=mv;history=chess.history();historyIndex=history.length;selected=null;render();return}}
+ selected=p&&p.color===chess.turn()?s:null;render()
+}
+function editToggle(){if(!edit){custom={};chess.board().forEach((row,r)=>row.forEach((p,f)=>{if(p)custom[String.fromCharCode(97+f)+(8-r)]={type:p.type,color:p.color}}));edit=true;selected=null;buildPicker()}else{edit=false;commitCustom()}render()}
+function buildPicker(){picker.innerHTML='';let opts=['wk','wq','wr','wb','wn','wp','bk','bq','br','bb','bn','bp','erase'];opts.forEach(k=>{let b=document.createElement('button');b.textContent=k==='erase'?'⌫':symbols[k];b.onclick=()=>{if(!selected){document.querySelector('#analysis').textContent='Primeiro toque numa casa do tabuleiro.';return}if(k==='erase')delete custom[selected];else custom[selected]={type:k[1],color:k[0]};render();};picker.appendChild(b)})}
+function commitCustom(){let fen='';for(let r=8;r>=1;r--){let e=0;for(let f=0;f<8;f++){let p=custom[String.fromCharCode(97+f)+r];if(!p)e++;else{if(e){fen+=e;e=0}fen+=p.color==='w'?p.type.toUpperCase():p.type}}if(e)fen+=e;if(r>1)fen+='/'}fen+=' '+document.querySelector('#turn').value+' - - 0 1';if(!chess.load(fen)){document.querySelector('#analysis').textContent='Posição montada. FEN inválido para regras de xadrez; ajuste as peças.'}history=[];historyIndex=0;lastMove=null}
+function reset(){stopEngine();edit=false;chess.reset();history=[];historyIndex=0;selected=null;lastMove=null;custom={};document.querySelector('#score').textContent='Avaliação: —';document.querySelector('#analysis').textContent='Posição inicial pronta.';render()}
+function clearPosition(){edit=true;custom={};selected=null;buildPicker();render()}
+function rotate(){flip=!flip;render()}
+function setTurn(c){let f=chess.fen().split(' ');f[1]=c;chess.load(f.join(' '));render()}
+function renderMoves(){let list=chess.history();document.querySelector('#moves').textContent=list.length?list.map((m,i)=>(i%2===0?Math.floor(i/2)+1+'. ':'')+m).join('  '):'Nenhum lance ainda.'}
+function back(){if(historyIndex<=0)return;chess.undo();historyIndex--;lastMove=null;render()}
+function forward(){if(historyIndex>=history.length)return;let m=history[historyIndex];chess.move(m);historyIndex++;render()}
+function stopEngine(){if(engine){engine.terminate();engine=null}document.querySelector('#analysis').textContent+='\\nAnálise parada.'}
+function analyze(){
+ stopEngine();let output=document.querySelector('#analysis'),score=document.querySelector('#score');output.textContent='Iniciando Stockfish...';score.textContent='Avaliação: calculando';
+ try{
+ engine=new Worker('https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js');
+ let depth=Number(document.querySelector('#depth').value),multi=Number(document.querySelector('#multi').value),best=null;
+ engine.onmessage=e=>{let m=String(e.data);if(m==='uciok'){engine.postMessage('isready')}else if(m==='readyok'){engine.postMessage('position fen '+chess.fen());engine.postMessage('go depth '+depth+'');}
+ else if(m.startsWith('info')){let pv=m.match(/ pv (.+)$/),cp=m.match(/ score cp (-?\\d+)/),mate=m.match(/ score mate (-?\\d+)/),d=m.match(/ depth (\\d+)/);if(pv){let val=mate?'Mate '+mate[1]:cp?(Number(cp[1])/100).toFixed(2):'—';score.textContent='Avaliação: '+val+(d?' • profundidade '+d[1]:'');output.textContent='Linha principal: '+pv[1].split(' ').slice(0,multi*8).join(' ')+'\\n'+output.textContent;}}
+ else if(m.startsWith('bestmove')){best=m.split(' ')[1];output.textContent='Melhor jogada: '+best+'\\n'+output.textContent;engine.terminate();engine=null;}
+ };engine.postMessage('uci');
+ }catch(err){output.textContent='Motor indisponível. Verifique internet e tente novamente.'}
+}
+function copyFen(){let fen=chess.fen();if(navigator.clipboard)navigator.clipboard.writeText(fen);document.querySelector('#analysis').textContent='FEN: '+fen}
+function pasteFen(){let f=prompt('Cole uma FEN:');if(f&&chess.load(f)){edit=false;render();document.querySelector('#analysis').textContent='Posição FEN carregada.'}else if(f)alert('FEN inválida')}
+render();buildPicker();
+</script></body></html>
